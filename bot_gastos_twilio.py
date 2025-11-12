@@ -14,7 +14,49 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
+app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
+
+
+# 🔹 NUEVA RUTA PARA TWILIO
+from flask import request
+from twilio.twiml.messaging_response import MessagingResponse
+import re
+from datetime import datetime
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    incoming_msg = request.values.get('Body', '').strip()
+    sender = request.values.get('From', '')
+
+    resp = MessagingResponse()
+    msg = resp.message()
+
+    # Si el mensaje contiene un símbolo de euro (€), lo registramos
+    if '€' in incoming_msg:
+        # Extrae el valor numérico del mensaje
+        match = re.search(r'(\d+)', incoming_msg)
+        valor = match.group(1) if match else '0'
+
+        # Extrae la descripción del gasto
+        descripcion = re.sub(r'€\d+', '', incoming_msg).strip().capitalize()
+
+        # Genera fecha/hora
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Mensaje de confirmación
+        msg.body(f"✅ Gasto registrado:\n📅 {fecha}\n💬 {descripcion}\n💰 {valor}€")
+
+        # (Opcional) Aquí luego agregaremos el registro en Google Sheets
+        print(f"[GASTO REGISTRADO] {fecha} | {descripcion} | {valor}€")
+
+    else:
+        msg.body("👋 Hola! Envía un gasto así: 'Compra gasolina €20' o 'Supermercado €45'")
+
+    return str(resp)
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE SHEETS
 # ==================================================
