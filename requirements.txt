@@ -1,0 +1,4 @@
+Flask
+twilio
+gspread
+oauth2client
