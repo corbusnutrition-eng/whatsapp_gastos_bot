@@ -39,6 +39,15 @@ credentials_dict = {
 credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
 client = gspread.authorize(credentials)
 sheet = client.open("GASTOS_AUTOMÁTICOS").sheet1
+# ===============================
+# PRUEBA DE CONEXIÓN GOOGLE SHEETS
+# ===============================
+try:
+    test_row = ["✅ Conectado desde Render", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+    sheet.append_row(test_row)
+    print("✅ Conexión exitosa: se agregó una fila de prueba a Google Sheets.")
+except Exception as e:
+    print("❌ Error al escribir en Google Sheets:", e)
 
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE DRIVE
