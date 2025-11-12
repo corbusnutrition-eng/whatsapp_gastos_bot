@@ -4,73 +4,27 @@ import re
 import difflib
 from datetime import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import os
 import requests
 
+# ==================================================
+# 🔹 CONFIGURACIÓN FLASK
+# ==================================================
 app = Flask(__name__)
+
 @app.route('/')
 def home():
     return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
-from flask import request
-from twilio.twiml.messaging_response import MessagingResponse
-import re
-from datetime import datetime
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    incoming_msg = request.values.get('Body', '').strip()
-    sender = request.values.get('From', '')
 
-    resp = MessagingResponse()
-    msg = resp.message()
-
-    if '€' in incoming_msg:
-        # Extrae el valor numérico
-        match = re.search(r'(\d+)', incoming_msg)
-        valor = match.group(1) if match else '0'
-
-        # Extrae la descripción del gasto
-        descripcion = re.sub(r'€\d+', '', incoming_msg).strip().capitalize()
-
-        # Categoría automática según palabra clave
-        if any(word in descripcion.lower() for word in ['comida', 'restaurante', 'super']):
-            categoria = 'Alimentación'
-        elif any(word in descripcion.lower() for word in ['gasolina', 'coche', 'repuesto']):
-            categoria = 'Transporte'
-        elif any(word in descripcion.lower() for word in ['ropa', 'zapato']):
-            categoria = 'Vestimenta'
-        elif any(word in descripcion.lower() for word in ['impuesto', 'alquiler', 'factura']):
-            categoria = 'Hogar'
-        else:
-            categoria = 'Otros'
-
-        # Fecha y usuario
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        usuario = sender.split(':')[-1]  # Extrae el número del usuario
-
-        # Guarda en Google Sheets
-        try:
-            sheet.append_row([fecha, usuario, categoria, descripcion, valor])
-            msg.body(f"✅ Gasto registrado:\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {valor}€")
-            print(f"[GUARDADO] {fecha} | {usuario} | {categoria} | {descripcion} | {valor}€")
-        except Exception as e:
-            msg.body("⚠️ Error al guardar en Google Sheets.")
-            print(f"❌ Error guardando en Sheets: {e}")
-
-    else:
-        msg.body("👋 Envía un gasto así: 'Compra gasolina €20' o 'Supermercado €45'")
-
-    return str(resp)
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE SHEETS
 # ==================================================
 scope = ["https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"]
-import os
-from google.oauth2 import service_account
+         "https://www.googleapis.com/auth/drive"]
 
 credentials_dict = {
     "type": os.getenv("GOOGLE_TYPE"),
@@ -88,6 +42,7 @@ credentials_dict = {
 credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
 client = gspread.authorize(credentials)
 sheet = client.open("GASTOS_AUTOMÁTICOS").sheet1
+
 # ===============================
 # PRUEBA DE CONEXIÓN GOOGLE SHEETS
 # ===============================
@@ -98,31 +53,31 @@ try:
 except Exception as e:
     print("❌ Error al escribir en Google Sheets:", e)
 
+
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE DRIVE
 # ==================================================
-FOLDER_ID = "1WUdVX2k39tj4pcJE4FIUKeJ0FjgRQdw"  # ✅ cambia por tu carpeta de Drive
-
+FOLDER_ID = "1WUdVX2k39tj4pcJE4FIUKeJ0FjgRQdw"  # ✅ Cambia por tu carpeta de Drive
 drive_service = build('drive', 'v3', credentials=credentials)
+
 
 def subir_foto_drive(url_imagen, categoria, monto, moneda):
     """Descarga la imagen de Twilio y la sube a Google Drive."""
     try:
-        # Descargar la imagen
         response = requests.get(url_imagen)
         if response.status_code != 200:
             return None
+
         os.makedirs("temp", exist_ok=True)
         nombre_local = f"temp/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{categoria}_{monto}{moneda}.jpg"
+
         with open(nombre_local, "wb") as f:
             f.write(response.content)
 
-        # Subir a Drive
         file_metadata = {'name': os.path.basename(nombre_local), 'parents': [FOLDER_ID]}
         media = MediaFileUpload(nombre_local, mimetype='image/jpeg')
         file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
 
-        # Hacer público
         drive_service.permissions().create(
             fileId=file.get('id'),
             body={'role': 'reader', 'type': 'anyone'}
@@ -131,13 +86,14 @@ def subir_foto_drive(url_imagen, categoria, monto, moneda):
         enlace = f"https://drive.google.com/file/d/{file.get('id')}/view?usp=sharing"
         os.remove(nombre_local)
         return enlace
+
     except Exception as e:
         print(f"❌ Error al subir imagen a Drive: {e}")
         return None
 
 
 # ==================================================
-# 🔹 FUNCIONES DE PROCESAMIENTO
+# 🔹 FUNCIONES AUXILIARES
 # ==================================================
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
@@ -178,6 +134,7 @@ def clasificar_categoria(texto):
         "Inversiones": ["cripto", "acciones", "trading"],
         "Créditos": ["banco", "crédito"]
     }
+
     texto_limpio = texto.lower()
     categoria_detectada = "Gastos varios"
     palabras = re.findall(r'\b\w+\b', texto_limpio)
@@ -200,17 +157,17 @@ def limpiar_descripcion(texto):
 
 
 # ==================================================
-# 🔹 ENDPOINT TWILIO MEJORADO
+# 🔹 ENDPOINT TWILIO PRINCIPAL
 # ==================================================
-@app.route("/whatsapp", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def whatsapp_webhook():
     msg = request.form.get("Body", "").strip()
     sender = request.form.get("From", "").replace("whatsapp:", "")
     num_media = int(request.form.get("NumMedia", 0))
+
     resp = MessagingResponse()
     r = resp.message()
 
-    # Si es texto
     if msg:
         monto, moneda = extraer_monto_y_moneda(msg)
         categoria = clasificar_categoria(msg)
@@ -218,7 +175,6 @@ def whatsapp_webhook():
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         enlace_comprobante = ""
 
-        # Si viene imagen
         if num_media > 0:
             media_url = request.form.get("MediaUrl0")
             enlace_comprobante = subir_foto_drive(media_url, categoria, monto or "0", moneda or "€")
@@ -227,10 +183,11 @@ def whatsapp_webhook():
             sheet.append_row([fecha, sender, categoria, descripcion, monto or "0", moneda or "€", enlace_comprobante])
             mensaje_ok = f"✅ Gasto registrado:\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {monto or '0'}{moneda or '€'}"
             if enlace_comprobante:
-                mensaje_ok += f"\n📎 [Comprobante]({enlace_comprobante})"
+                mensaje_ok += f"\n📎 Comprobante: {enlace_comprobante}"
             r.body(mensaje_ok)
         except Exception as e:
             r.body(f"❌ Error al guardar: {e}")
+            print(f"❌ Error al guardar: {e}")
     else:
         r.body("👋 Envía tus gastos así:\n💬 *Supermercado 25€*\n📸 Puedes incluir una foto del comprobante.")
 
@@ -241,4 +198,4 @@ def whatsapp_webhook():
 # 🔹 INICIO SERVIDOR
 # ==================================================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000) 
+    app.run(host="0.0.0.0", port=5000)
