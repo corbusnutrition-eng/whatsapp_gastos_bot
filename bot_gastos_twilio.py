@@ -116,7 +116,7 @@ def clasificar_categoria(texto):
         "Transporte": ["peajes", "uber"],
         "Construcción": ["construcción", "remodelación"],
         "Viajes": ["viaje", "avión", "vuelo", "visita"],
-        "Vestimenta": ["ropa", "vestido", "zapatos", "gorra", "camisa", "pantalon", "camiseta", "aretes"],
+        "Vestimenta": ["ropa", "vestido", "zapatos", "gorra", "pantalon", "camiseta", "aretes"],
         "Inversiones": ["cripto", "acciones", "trading"],
         "Créditos": ["banco", "crédito"]
     }
