@@ -11,6 +11,9 @@ import os
 import requests
 
 app = Flask(__name__)
+@app.route('/')
+def home():
+    return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
 
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE SHEETS
