@@ -14,14 +14,6 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
-
-
-# 🔹 NUEVA RUTA PARA TWILIO
 from flask import request
 from twilio.twiml.messaging_response import MessagingResponse
 import re
@@ -35,26 +27,41 @@ def webhook():
     resp = MessagingResponse()
     msg = resp.message()
 
-    # Si el mensaje contiene un símbolo de euro (€), lo registramos
     if '€' in incoming_msg:
-        # Extrae el valor numérico del mensaje
+        # Extrae el valor numérico
         match = re.search(r'(\d+)', incoming_msg)
         valor = match.group(1) if match else '0'
 
         # Extrae la descripción del gasto
         descripcion = re.sub(r'€\d+', '', incoming_msg).strip().capitalize()
 
-        # Genera fecha/hora
+        # Categoría automática según palabra clave
+        if any(word in descripcion.lower() for word in ['comida', 'restaurante', 'super']):
+            categoria = 'Alimentación'
+        elif any(word in descripcion.lower() for word in ['gasolina', 'coche', 'repuesto']):
+            categoria = 'Transporte'
+        elif any(word in descripcion.lower() for word in ['ropa', 'zapato']):
+            categoria = 'Vestimenta'
+        elif any(word in descripcion.lower() for word in ['impuesto', 'alquiler', 'factura']):
+            categoria = 'Hogar'
+        else:
+            categoria = 'Otros'
+
+        # Fecha y usuario
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        usuario = sender.split(':')[-1]  # Extrae el número del usuario
 
-        # Mensaje de confirmación
-        msg.body(f"✅ Gasto registrado:\n📅 {fecha}\n💬 {descripcion}\n💰 {valor}€")
-
-        # (Opcional) Aquí luego agregaremos el registro en Google Sheets
-        print(f"[GASTO REGISTRADO] {fecha} | {descripcion} | {valor}€")
+        # Guarda en Google Sheets
+        try:
+            sheet.append_row([fecha, usuario, categoria, descripcion, valor])
+            msg.body(f"✅ Gasto registrado:\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {valor}€")
+            print(f"[GUARDADO] {fecha} | {usuario} | {categoria} | {descripcion} | {valor}€")
+        except Exception as e:
+            msg.body("⚠️ Error al guardar en Google Sheets.")
+            print(f"❌ Error guardando en Sheets: {e}")
 
     else:
-        msg.body("👋 Hola! Envía un gasto así: 'Compra gasolina €20' o 'Supermercado €45'")
+        msg.body("👋 Envía un gasto así: 'Compra gasolina €20' o 'Supermercado €45'")
 
     return str(resp)
 # ==================================================
