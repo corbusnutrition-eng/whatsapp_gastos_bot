@@ -15,7 +15,7 @@ app = Flask(__name__)
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE SHEETS
 # ==================================================
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
 import os
 from google.oauth2 import service_account
 
