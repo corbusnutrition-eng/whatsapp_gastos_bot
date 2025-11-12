@@ -15,7 +15,8 @@ app = Flask(__name__)
 # ==================================================
 # 🔹 CONFIGURACIÓN GOOGLE SHEETS
 # ==================================================
-scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
+scope = ["https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"]
 import os
 from google.oauth2 import service_account
 
@@ -32,8 +33,7 @@ credentials_dict = {
     "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_CERT_URL"),
 }
 
-credentials = service_account.Credentials.from_service_account_info(credentials_dict)
-client = gspread.authorize(credentials)
+credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
 client = gspread.authorize(credentials)
 sheet = client.open("GASTOS_AUTOMÁTICOS").sheet1
 
