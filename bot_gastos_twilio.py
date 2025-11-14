@@ -116,11 +116,11 @@ def extraer_monto_y_moneda(texto):
 def clasificar_categoria(texto):
     categorias = {
         "Supermercado": ["supermercado", "continente", "pingo", "mercado"],
-        "Alimentación": ["restaurante", "parrillada", "churrasco", "bufet", "almuerzo", "desayuno", "cena", "merienda", "comida"],
+        "Alimentación": ["restaurante", "parrillada", "churrasco", "bufet", "almuerzo", "desayuno", "cena", "merienda", "comida", "delivery"],
         "Combustible": ["gasolina", "combustible", "gasolinera"],
-        "Mantenimiento": ["carro", "repuestos", "revisión", "mantenimiento", "arreglo", "reparación", "vehículo", "oliveira", "césped"],
+        "Mantenimiento": ["carro", "repuestos", "revisión", "mantenimiento", "arreglo", "reparación", "vehículo", "oliveira", "césped", "ferreteria],
         "Servicios básicos": ["agua", "luz", "internet", "teléfono", "planes", "gas", "paneles", "meo", "edp"],
-        "Salud": ["medicina", "hospital", "clínica", "médico", "doctor", "dentista", "lentes", "terapia", "medicamentos", "salud"],
+        "Salud": ["medicina", "hospital", "clínica", "médico", "doctor", "dentista", "lentes", "terapia", "medicamentos", "salud", "odontologo"],
         "Cuidado personal": ["uñas", "peluquería", "belleza", "depilación", "masajes", "botox", "estética", "pelo", "cabello"],
         "Educación": ["escuela", "libro", "curso", "colegio", "natación", "música"],
         "Diversión": ["discoteca", "salida", "cervezas", "juegos", "diversión", "jumpers"],
@@ -133,6 +133,7 @@ def clasificar_categoria(texto):
         "Vestimenta": ["ropa", "vestido", "zapatos", "gorra", "pantalon", "camiseta", "aretes"],
         "Inversiones": ["cripto", "acciones", "trading"],
         "Créditos": ["banco", "crédito"]
+    
     }
 
     texto_limpio = texto.lower()
