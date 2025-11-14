@@ -118,7 +118,7 @@ def clasificar_categoria(texto):
         "Supermercado": ["supermercado", "continente", "pingo", "mercado"],
         "Alimentación": ["restaurante", "parrillada", "churrasco", "bufet", "almuerzo", "desayuno", "cena", "merienda", "comida", "delivery"],
         "Combustible": ["gasolina", "combustible", "gasolinera"],
-        "Mantenimiento": ["carro", "repuestos", "revisión", "mantenimiento", "arreglo", "reparación", "vehículo", "oliveira", "césped", "ferreteria],
+        "Mantenimiento": ["carro", "repuestos", "revisión", "mantenimiento", "arreglo", "reparación", "vehículo", "oliveira", "césped", "ferreteria"],
         "Servicios básicos": ["agua", "luz", "internet", "teléfono", "planes", "gas", "paneles", "meo", "edp"],
         "Salud": ["medicina", "hospital", "clínica", "médico", "doctor", "dentista", "lentes", "terapia", "medicamentos", "salud", "odontologo"],
         "Cuidado personal": ["uñas", "peluquería", "belleza", "depilación", "masajes", "botox", "estética", "pelo", "cabello"],
