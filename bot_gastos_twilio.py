@@ -1,7 +1,6 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 import re
-import difflib
 from datetime import datetime
 import gspread
 from google.oauth2 import service_account
@@ -15,11 +14,12 @@ app = Flask(__name__)
 # ==========================================
 # ⚙️ CONFIGURACIÓN DE NÚMEROS
 # ==========================================
+
 ADMINS = ["+593990516017", "+351927903369"]
 NUMEROS_SOCIEDAD = ["+351961545289", "+351961545268"]
 
-# Modo temporal para administradores (P o S)
-modo_usuario = {}
+# Memoria temporal del modo admin
+modo_usuario = {}     # { "+59399..." : "P" / "S" }
 
 # Archivos y pestañas
 ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
@@ -27,8 +27,9 @@ TAB_PERSONAL = "PERSONAL"
 TAB_SOCIEDAD = "SOCIEDAD"
 
 # ==========================================
-# 📁 CARPETAS GOOGLE DRIVE (👇 TUS IDS)
+# 📁 CARPETAS GOOGLE DRIVE (PON TUS IDS)
 # ==========================================
+
 FOLDER_PERSONAL = "1DAPnUuuR19moXTPLN70GsLRVbyjT06R0"
 FOLDER_SOCIEDAD = "1eLsPS5656bzNMlm3W7hF8uH197kBX3Pse"
 
@@ -55,6 +56,7 @@ credentials_dict = {
 }
 
 credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
+
 client = gspread.authorize(credentials)
 drive_service = build('drive', 'v3', credentials=credentials)
 
@@ -65,6 +67,7 @@ sheet_sociedad = archivo.worksheet(TAB_SOCIEDAD)
 # ==========================================
 # 🔹 SUBIR FOTO A CARPETA CORRECTA
 # ==========================================
+
 def subir_foto_drive(url_imagen, carpeta_id, categoria, monto, moneda):
     try:
         response = requests.get(url_imagen)
@@ -73,27 +76,25 @@ def subir_foto_drive(url_imagen, carpeta_id, categoria, monto, moneda):
 
         os.makedirs("temp", exist_ok=True)
         filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{categoria}_{monto}{moneda}.jpg"
-        path_local = f"temp/{filename}"
+        local_path = f"temp/{filename}"
 
-        with open(path_local, "wb") as f:
+        with open(local_path, "wb") as f:
             f.write(response.content)
 
         metadata = {'name': filename, 'parents': [carpeta_id]}
-        media = MediaFileUpload(path_local, mimetype='image/jpeg')
+        media = MediaFileUpload(local_path, mimetype="image/jpeg")
 
         file = drive_service.files().create(
-            body=metadata,
-            media_body=media,
-            fields='id'
+            body=metadata, media_body=media, fields="id"
         ).execute()
 
-        # Hacer el archivo público
+        # Hacer archivo público
         drive_service.permissions().create(
             fileId=file["id"],
-            body={'role': 'reader', 'type': 'anyone'}
+            body={"role": "reader", "type": "anyone"}
         ).execute()
 
-        os.remove(path_local)
+        os.remove(local_path)
 
         return f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
 
@@ -102,30 +103,37 @@ def subir_foto_drive(url_imagen, carpeta_id, categoria, monto, moneda):
         return None
 
 # ==========================================
-# 🔹 EXTRACCIÓN Y CATEGORÍAS
+# 🔹 EXTRAER MONTO Y MONEDA
 # ==========================================
+
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
     patrones = [
-        (re.compile(r'(?:€|\bEUR\b)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
-        (re.compile(r'(?:\$|\bUSD\b)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(€|EUR)'), "€"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(\$|USD)'), "$"),
+        (re.compile(r'(?:€|eur)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
+        (re.compile(r'(?:\$|usd)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*€'), "€"),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*\$'), "$"),
     ]
+
     for reg, moneda in patrones:
         m = reg.search(t)
         if m:
             return m.group(1).replace(",", "."), moneda
+
     return None, None
+
+# ==========================================
+# 🔹 CLASIFICACIÓN DE CATEGORÍAS
+# ==========================================
 
 def clasificar_categoria(texto):
     texto = texto.lower()
     categorias = {
-        "Supermercado": ["supermercado", "continente", "pingo"],
-        "Alimentación": ["restaurante", "comida", "cena", "almuerzo"],
+        "Supermercado": ["supermercado", "continente", "mercado", "pingo"],
+        "Alimentación": ["almuerzo", "comida", "restaurante", "cena", "buffet"],
         "Combustible": ["gasolina", "combustible"],
-        "Salud": ["medicina", "doctor", "dentista"],
-        "Diversión": ["juegos", "discoteca", "salida"],
+        "Salud": ["hospital", "doctor", "dentista", "medicina"],
+        "Diversión": ["juegos", "salida", "discoteca"],
         "Vestimenta": ["ropa", "zapatos"],
         "Viajes": ["vuelo", "viaje"],
         "Servicios básicos": ["agua", "luz", "internet"],
@@ -137,12 +145,18 @@ def clasificar_categoria(texto):
 
     return "Gastos varios"
 
+# ==========================================
+# 🔹 LIMPIAR DESCRIPCIÓN
+# ==========================================
+
 def limpiar_descripcion(texto):
-    return re.sub(r'\s+', ' ', texto).strip().capitalize()
+    texto = re.sub(r'[€\$]\s*\d+(?:[.,]\d{1,2})?', '', texto)
+    return texto.strip().capitalize()
 
 # ==========================================
 # 🔹 WEBHOOK PRINCIPAL
 # ==========================================
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     msg = request.form.get("Body", "").strip()
@@ -152,14 +166,13 @@ def webhook():
     resp = MessagingResponse()
     r = resp.message()
 
-    # 1️⃣ Admin cambia modo
+    # 1️⃣ ADMIN cambia modo
     if sender in ADMINS and msg.upper() in ["P", "S"]:
         modo_usuario[sender] = msg.upper()
-        texto = "PERSONAL" if msg.upper() == "P" else "SOCIEDAD"
-        r.body(f"✔ Modo cambiado a: *{texto}*")
+        r.body(f"✔ Modo cambiado a: *{'PERSONAL' if msg.upper()=='P' else 'SOCIEDAD'}*")
         return str(resp)
 
-    # 2️⃣ Elegir pestaña + carpeta
+    # 2️⃣ Determinar hoja + carpeta
     if sender in NUMEROS_SOCIEDAD:
         hoja = sheet_sociedad
         carpeta = FOLDER_SOCIEDAD
@@ -171,17 +184,19 @@ def webhook():
         else:
             hoja = sheet_personal
             carpeta = FOLDER_PERSONAL
+
     else:
         hoja = sheet_personal
         carpeta = FOLDER_PERSONAL
 
-    # 3️⃣ Procesar gasto
+    # 3️⃣ Extraer datos
     monto, moneda = extraer_monto_y_moneda(msg)
     categoria = clasificar_categoria(msg)
     descripcion = limpiar_descripcion(msg)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     enlace = ""
+
     if num_media > 0:
         enlace = subir_foto_drive(
             request.form.get("MediaUrl0"),
@@ -200,5 +215,6 @@ def webhook():
 # ==========================================
 # 🔹 INICIO FLASK
 # ==========================================
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
