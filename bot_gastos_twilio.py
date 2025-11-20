@@ -182,7 +182,7 @@ def webhook():
 
     hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, enlace])
 
-    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}\n🖇️ Sube el comprobante:https://bit.ly/Subir-comprobante-pago​")
+    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}")
 
     return str(resp)
 
