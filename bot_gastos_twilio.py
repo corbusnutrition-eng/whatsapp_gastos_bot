@@ -15,29 +15,31 @@ app = Flask(__name__)
 # ==========================================
 # ⚙️ CONFIGURACIÓN DE NÚMEROS
 # ==========================================
-
 ADMINS = ["+593990516017", "+351927903369"]
 NUMEROS_SOCIEDAD = ["+351961545289", "+351961545268"]
 
-modo_usuario = {}  # {numero: "P" o "S"}
+# Modo temporal para administradores (P o S)
+modo_usuario = {}
 
+# Archivos y pestañas
 ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
 TAB_PERSONAL = "PERSONAL"
 TAB_SOCIEDAD = "SOCIEDAD"
 
 # ==========================================
-# 📁 CARPETAS GOOGLE DRIVE (PONER TUS IDs)
+# 📁 CARPETAS GOOGLE DRIVE (👇 TUS IDS)
+# ==========================================
+FOLDER_PERSONAL = "1DAPnUuuR19moXTPLN70GsLRVbyjT06R0"
+FOLDER_SOCIEDAD = "1eLsPS5656bzNMlm3W7hF8uH197kBX3Pse"
+
+# ==========================================
+# 🔹 GOOGLE SHEETS + GOOGLE DRIVE
 # ==========================================
 
-FOLDER_PERSONAL = "1DAPnUuuRl9moXTLN7T0GsLRVbyjTO6R0"
-FOLDER_SOCIEDAD = "1eLsP5656bzNMml3W7hF8uHi97kBX3Pse"
-
-# ==========================================
-# 🔹 CONFIGURACIÓN GOOGLE SHEETS + DRIVE
-# ==========================================
-
-scope = ["https://www.googleapis.com/auth/spreadsheets",
-         "https://www.googleapis.com/auth/drive"]
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
 credentials_dict = {
     "type": os.getenv("GOOGLE_TYPE"),
@@ -53,7 +55,6 @@ credentials_dict = {
 }
 
 credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
-
 client = gspread.authorize(credentials)
 drive_service = build('drive', 'v3', credentials=credentials)
 
@@ -62,9 +63,8 @@ sheet_personal = archivo.worksheet(TAB_PERSONAL)
 sheet_sociedad = archivo.worksheet(TAB_SOCIEDAD)
 
 # ==========================================
-# 🔹 SUBIR FOTO A DRIVE EN LA CARPETA CORRECTA
+# 🔹 SUBIR FOTO A CARPETA CORRECTA
 # ==========================================
-
 def subir_foto_drive(url_imagen, carpeta_id, categoria, monto, moneda):
     try:
         response = requests.get(url_imagen)
@@ -72,95 +72,77 @@ def subir_foto_drive(url_imagen, carpeta_id, categoria, monto, moneda):
             return None
 
         os.makedirs("temp", exist_ok=True)
-        nombre_local = f"temp/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{categoria}_{monto}{moneda}.jpg"
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{categoria}_{monto}{moneda}.jpg"
+        path_local = f"temp/{filename}"
 
-        with open(nombre_local, "wb") as f:
+        with open(path_local, "wb") as f:
             f.write(response.content)
 
-        file_metadata = {
-            'name': os.path.basename(nombre_local),
-            'parents': [carpeta_id]
-        }
+        metadata = {'name': filename, 'parents': [carpeta_id]}
+        media = MediaFileUpload(path_local, mimetype='image/jpeg')
 
-        media = MediaFileUpload(nombre_local, mimetype='image/jpeg')
         file = drive_service.files().create(
-            body=file_metadata,
+            body=metadata,
             media_body=media,
             fields='id'
         ).execute()
 
-        # Hacer archivo público
+        # Hacer el archivo público
         drive_service.permissions().create(
-            fileId=file.get('id'),
+            fileId=file["id"],
             body={'role': 'reader', 'type': 'anyone'}
         ).execute()
 
-        enlace = f"https://drive.google.com/file/d/{file.get('id')}/view?usp=sharing"
+        os.remove(path_local)
 
-        os.remove(nombre_local)
-        return enlace
+        return f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
 
     except Exception as e:
-        print("❌ Error al subir imagen:", e)
+        print("❌ Error subiendo imagen:", e)
         return None
 
 # ==========================================
-# 🔹 EXTRACCIÓN Y CATEGORIZACIÓN
+# 🔹 EXTRACCIÓN Y CATEGORÍAS
 # ==========================================
-
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
     patrones = [
         (re.compile(r'(?:€|\bEUR\b)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
         (re.compile(r'(?:\$|\bUSD\b)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:€|\bEUR\b)'), "€"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\$|\bUSD\b)'), "$"),
-        (re.compile(r'(?<!\d:)(\b[0-9]+(?:[.,][0-9]{1,2})?\b)(?!:\d{2})'), None),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(€|EUR)'), "€"),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*(\$|USD)'), "$"),
     ]
-    for regex, moneda_forzada in patrones:
-        m = regex.search(t)
+    for reg, moneda in patrones:
+        m = reg.search(t)
         if m:
-            monto = m.group(1).replace(",", ".")
-            moneda = moneda_forzada or "€"
-            return monto, moneda
+            return m.group(1).replace(",", "."), moneda
     return None, None
 
-
 def clasificar_categoria(texto):
+    texto = texto.lower()
     categorias = {
-        "Supermercado": ["supermercado", "continente", "mercado", "pingo"],
-        "Alimentación": ["almuerzo", "comida", "restaurante", "cena"],
-        "Combustible": ["combustible", "gasolina"],
-        "Salud": ["hospital", "medicina", "doctor", "dentista"],
-        "Educación": ["colegio", "libros"],
-        "Diversión": ["juegos", "salida", "cervezas"],
+        "Supermercado": ["supermercado", "continente", "pingo"],
+        "Alimentación": ["restaurante", "comida", "cena", "almuerzo"],
+        "Combustible": ["gasolina", "combustible"],
+        "Salud": ["medicina", "doctor", "dentista"],
+        "Diversión": ["juegos", "discoteca", "salida"],
         "Vestimenta": ["ropa", "zapatos"],
-        "Viajes": ["viaje", "vuelo"],
-        "Mantenimiento": ["arreglo", "reparación"],
+        "Viajes": ["vuelo", "viaje"],
         "Servicios básicos": ["agua", "luz", "internet"],
-        "Créditos": ["crédito", "banco"],
-        "Construcción": ["construcción"],
-        "Transporte": ["uber", "taxi"],
     }
 
-    texto_limpio = texto.lower()
-    for palabra in texto_limpio.split():
-        for cat, keywords in categorias.items():
-            if palabra in keywords:
-                return cat
+    for cat, palabras in categorias.items():
+        if any(p in texto for p in palabras):
+            return cat
 
     return "Gastos varios"
 
-
 def limpiar_descripcion(texto):
-    descripcion = re.sub(r'[€$]\s*\d+(?:[.,]\d{1,2})?', '', texto)
-    descripcion = re.sub(r'\s+', ' ', descripcion)
-    return descripcion.strip().capitalize()
+    return re.sub(r'\s+', ' ', texto).strip().capitalize()
 
 # ==========================================
 # 🔹 WEBHOOK PRINCIPAL
 # ==========================================
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     msg = request.form.get("Body", "").strip()
@@ -170,23 +152,30 @@ def webhook():
     resp = MessagingResponse()
     r = resp.message()
 
-    # ADMIN cambia modo
+    # 1️⃣ Admin cambia modo
     if sender in ADMINS and msg.upper() in ["P", "S"]:
         modo_usuario[sender] = msg.upper()
-        r.body(f"✔ Modo cambiado a: *{'PERSONAL' if msg.upper()=='P' else 'SOCIEDAD'}*")
+        texto = "PERSONAL" if msg.upper() == "P" else "SOCIEDAD"
+        r.body(f"✔ Modo cambiado a: *{texto}*")
         return str(resp)
 
-    # Elegir hoja y carpeta
+    # 2️⃣ Elegir pestaña + carpeta
     if sender in NUMEROS_SOCIEDAD:
         hoja = sheet_sociedad
         carpeta = FOLDER_SOCIEDAD
+
     elif sender in ADMINS and sender in modo_usuario:
-        hoja = sheet_sociedad if modo_usuario[sender] == "S" else sheet_personal
-        carpeta = FOLDER_SOCIEDAD if modo_usuario[sender] == "S" else FOLDER_PERSONAL
+        if modo_usuario[sender] == "S":
+            hoja = sheet_sociedad
+            carpeta = FOLDER_SOCIEDAD
+        else:
+            hoja = sheet_personal
+            carpeta = FOLDER_PERSONAL
     else:
         hoja = sheet_personal
         carpeta = FOLDER_PERSONAL
 
+    # 3️⃣ Procesar gasto
     monto, moneda = extraer_monto_y_moneda(msg)
     categoria = clasificar_categoria(msg)
     descripcion = limpiar_descripcion(msg)
@@ -202,15 +191,14 @@ def webhook():
             moneda or "€"
         )
 
-    hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, enlace])
+    hoja.append_row([fecha, sender, categoria, descripcion, monto or "0", moneda or "€", enlace])
 
-    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}")
+    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}\n📎 {enlace}")
 
     return str(resp)
 
 # ==========================================
-# 🔹 ARRANCAR SERVIDOR
+# 🔹 INICIO FLASK
 # ==========================================
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
