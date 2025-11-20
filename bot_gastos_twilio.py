@@ -180,26 +180,9 @@ def webhook():
     if num_media > 0:
         enlace = subir_foto_drive(request.form.get("MediaUrl0"), categoria, monto or "0", moneda or "€")
 
-    # ==========================================
-# 🔗 LINK DEL FORMULARIO PARA SUBIR COMPROBANTE
-# ==========================================
+    hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, enlace])
 
-GOOGLE_FORM_LINK = "https://docs.google.com/forms/d/1bI7ce81pm6N3Nem5s6zRsnTMlIUfce5M2h2oBVCUTiSQ/viewform?usp=pp_url"
-
-hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, enlace])
-
-mensaje = (
-    "✅ *Gasto registrado*\n"
-    f"📅 {fecha}\n"
-    f"🏷 {categoria}\n"
-    f"💬 {descripcion}\n"
-    f"💰 {monto}{moneda}\n\n"
-    "📎 *Sube el comprobante aquí:*\n"
-    f"{GOOGLE_FORM_LINK}"
-)
-
-r.body(mensaje)
-return str(resp)
+    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}\n🖇️ Sube el comprobante:https://bit.ly/Subir-comprobante-pago​")
 
     return str(resp)
 
