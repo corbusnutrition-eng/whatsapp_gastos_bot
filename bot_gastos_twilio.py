@@ -10,19 +10,27 @@ from googleapiclient.http import MediaFileUpload
 import os
 import requests
 
-# ==================================================
-# 🔹 CONFIGURACIÓN FLASK
-# ==================================================
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "🚀 Bot WhatsApp Gastos conectado correctamente a Render"
+# ==========================================
+# ⚙️ CONFIGURACIÓN DE NÚMEROS
+# ==========================================
 
+ADMINS = ["+593990516017", "+351927903369"]
+NUMEROS_SOCIEDAD = ["+351961545289", "+351961545268"]
 
-# ==================================================
-# 🔹 CONFIGURACIÓN GOOGLE SHEETS
-# ==================================================
+# Memoria temporal del modo para administradores
+modo_usuario = {}  # {numero: "P" o "S"}
+
+# Nombre de pestañas dentro del mismo archivo
+TAB_PERSONAL = "PERSONAL"
+TAB_SOCIEDAD = "SOCIEDAD"
+ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
+
+# ==========================================
+# 🔹 GOOGLE SHEETS
+# ==========================================
+
 scope = ["https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive"]
 
@@ -41,28 +49,19 @@ credentials_dict = {
 
 credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
 client = gspread.authorize(credentials)
-sheet = client.open("GASTOS_AUTOMÁTICOS").sheet1
-
-# ===============================
-# PRUEBA DE CONEXIÓN GOOGLE SHEETS
-# ===============================
-try:
-    test_row = ["✅ Conectado desde Render", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
-    sheet.append_row(test_row)
-    print("✅ Conexión exitosa: se agregó una fila de prueba a Google Sheets.")
-except Exception as e:
-    print("❌ Error al escribir en Google Sheets:", e)
-
-
-# ==================================================
-# 🔹 CONFIGURACIÓN GOOGLE DRIVE
-# ==================================================
-FOLDER_ID = "1WUdVX2k39tj4pcJE4FIUKeJ0FjgRQdw"  # ✅ Cambia por tu carpeta de Drive
 drive_service = build('drive', 'v3', credentials=credentials)
 
+archivo = client.open(ARCHIVO_GS)
+sheet_personal = archivo.worksheet(TAB_PERSONAL)
+sheet_sociedad = archivo.worksheet(TAB_SOCIEDAD)
+
+# ==========================================
+# 🔹 SUBIR FOTO A GOOGLE DRIVE
+# ==========================================
+
+FOLDER_ID = "1WUdVX2k39tj4pcJE4FIUKeJ0FjgRQdw"
 
 def subir_foto_drive(url_imagen, categoria, monto, moneda):
-    """Descarga la imagen de Twilio y la sube a Google Drive."""
     try:
         response = requests.get(url_imagen)
         if response.status_code != 200:
@@ -78,6 +77,7 @@ def subir_foto_drive(url_imagen, categoria, monto, moneda):
         media = MediaFileUpload(nombre_local, mimetype='image/jpeg')
         file = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
 
+        # Hacer el archivo público
         drive_service.permissions().create(
             fileId=file.get('id'),
             body={'role': 'reader', 'type': 'anyone'}
@@ -88,13 +88,13 @@ def subir_foto_drive(url_imagen, categoria, monto, moneda):
         return enlace
 
     except Exception as e:
-        print(f"❌ Error al subir imagen a Drive: {e}")
+        print(f"❌ Error al subir imagen: {e}")
         return None
 
+# ==========================================
+# 🔹 EXTRACCIÓN Y CATEGORIZACIÓN
+# ==========================================
 
-# ==================================================
-# 🔹 FUNCIONES AUXILIARES
-# ==================================================
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
     patrones = [
@@ -112,56 +112,42 @@ def extraer_monto_y_moneda(texto):
             return monto, moneda
     return None, None
 
-
 def clasificar_categoria(texto):
     categorias = {
-        "Supermercado": ["supermercado", "continente", "pingo", "mercado"],
-        "Alimentación": ["restaurante", "parrillada", "churrasco", "bufet", "almuerzo", "desayuno", "cena", "merienda", "comida", "delivery"],
-        "Combustible": ["gasolina", "combustible", "gasolinera"],
-        "Mantenimiento": ["carro", "repuestos", "revisión", "mantenimiento", "arreglo", "reparación", "vehículo", "oliveira", "césped", "ferreteria"],
-        "Servicios básicos": ["agua", "luz", "internet", "teléfono", "planes", "gas", "paneles", "meo", "edp"],
-        "Salud": ["medicina", "hospital", "clínica", "médico", "doctor", "dentista", "lentes", "terapia", "medicamentos", "salud", "odontologo"],
-        "Cuidado personal": ["uñas", "peluquería", "belleza", "depilación", "masajes", "botox", "estética", "pelo", "cabello"],
-        "Educación": ["escuela", "libro", "curso", "colegio", "natación", "música"],
-        "Diversión": ["discoteca", "salida", "cervezas", "juegos", "diversión", "jumpers"],
-        "Impuestos Portugal": ["portugal", "porto", "irs", "finanzas"],
-        "Multas": ["multa"],
-        "Impuestos Ecuador": ["guisella", "guise", "ecuador"],
-        "Transporte": ["peajes", "uber"],
-        "Construcción": ["construcción", "remodelación"],
-        "Viajes": ["viaje", "avión", "vuelo", "visita"],
-        "Vestimenta": ["ropa", "vestido", "zapatos", "gorra", "pantalon", "camiseta", "aretes"],
-        "Inversiones": ["cripto", "acciones", "trading"],
-        "Créditos": ["banco", "crédito"]
-    
+        "Supermercado": ["supermercado", "continente", "mercado", "pingo"],
+        "Alimentación": ["almuerzo", "comida", "restaurante", "cena"],
+        "Combustible": ["combustible", "gasolina"],
+        "Salud": ["hospital", "medicina", "doctor", "dentista"],
+        "Educación": ["colegio", "libros"],
+        "Diversión": ["juegos", "salida", "cervezas"],
+        "Vestimenta": ["ropa", "zapatos"],
+        "Viajes": ["viaje", "vuelo"],
+        "Mantenimiento": ["arreglo", "reparación"],
+        "Servicios básicos": ["agua", "luz", "internet"],
+        "Créditos": ["crédito", "banco"],
+        "Construcción": ["construcción"],
+        "Transporte": ["uber", "taxi"],
     }
 
     texto_limpio = texto.lower()
-    categoria_detectada = "Gastos varios"
-    palabras = re.findall(r'\b\w+\b', texto_limpio)
-    for palabra in palabras:
+    for palabra in texto_limpio.split():
         for cat, keywords in categorias.items():
-            if difflib.get_close_matches(palabra, keywords, cutoff=0.8):
+            if palabra in keywords:
                 return cat
-    return categoria_detectada
 
+    return "Gastos varios"
 
 def limpiar_descripcion(texto):
-    descripcion = texto
-    descripcion = re.sub(r'(\bEUR\b|\bUSD\b|€|\$)\s*[0-9]+(?:[.,][0-9]{1,2})?', '', descripcion, flags=re.IGNORECASE)
-    descripcion = re.sub(r'[0-9]+(?:[.,][0-9]{1,2})?\s*(€|\$|\bEUR\b|\bUSD\b)', '', descripcion, flags=re.IGNORECASE)
-    descripcion = re.sub(r'\b\d{1,2}:\d{2}\b', '', descripcion)
-    descripcion = re.sub(r'\b\d{4}-\d{2}-\d{2}\b', '', descripcion)
-    descripcion = re.sub(r'\b\d{1,2}/\d{1,2}/\d{2,4}\b', '', descripcion)
-    descripcion = re.sub(r'\b(editado|reenviado)\b', '', descripcion, flags=re.IGNORECASE)
-    return re.sub(r'\s+', ' ', descripcion).strip().capitalize()
+    descripcion = re.sub(r'[€$]\s*\d+(?:[.,]\d{1,2})?', '', texto)
+    descripcion = re.sub(r'\s+', ' ', descripcion)
+    return descripcion.strip().capitalize()
 
+# ==========================================
+# 🔹 WEBHOOK PRINCIPAL
+# ==========================================
 
-# ==================================================
-# 🔹 ENDPOINT TWILIO PRINCIPAL
-# ==================================================
 @app.route("/webhook", methods=["POST"])
-def whatsapp_webhook():
+def webhook():
     msg = request.form.get("Body", "").strip()
     sender = request.form.get("From", "").replace("whatsapp:", "")
     num_media = int(request.form.get("NumMedia", 0))
@@ -169,34 +155,40 @@ def whatsapp_webhook():
     resp = MessagingResponse()
     r = resp.message()
 
-    if msg:
-        monto, moneda = extraer_monto_y_moneda(msg)
-        categoria = clasificar_categoria(msg)
-        descripcion = limpiar_descripcion(msg)
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        enlace_comprobante = ""
+    # ADMIN cambia modo con "P" o "S"
+    if sender in ADMINS and msg.upper() in ["P", "S"]:
+        modo_usuario[sender] = msg.upper()
+        r.body(f"✔ Modo cambiado a: *{'PERSONAL' if msg.upper()=='P' else 'SOCIEDAD'}*")
+        return str(resp)
 
-        if num_media > 0:
-            media_url = request.form.get("MediaUrl0")
-            enlace_comprobante = subir_foto_drive(media_url, categoria, monto or "0", moneda or "€")
-
-        try:
-            sheet.append_row([fecha, sender, categoria, descripcion, monto or "0", moneda or "€", enlace_comprobante])
-            mensaje_ok = f"✅ Gasto registrado:\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {monto or '0'}{moneda or '€'}"
-            if enlace_comprobante:
-                mensaje_ok += f"\n📎 Comprobante: {enlace_comprobante}"
-            r.body(mensaje_ok)
-        except Exception as e:
-            r.body(f"❌ Error al guardar: {e}")
-            print(f"❌ Error al guardar: {e}")
+    # Determinar hoja destino
+    if sender in NUMEROS_SOCIEDAD:
+        hoja = sheet_sociedad
+    elif sender in ADMINS and sender in modo_usuario:
+        hoja = sheet_sociedad if modo_usuario[sender] == "S" else sheet_personal
     else:
-        r.body("👋 Envía tus gastos así:\n💬 *Supermercado 25€*\n📸 Puedes incluir una foto del comprobante.")
+        hoja = sheet_personal
+
+    # Extraer datos
+    monto, moneda = extraer_monto_y_moneda(msg)
+    categoria = clasificar_categoria(msg)
+    descripcion = limpiar_descripcion(msg)
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    enlace = ""
+
+    # Si incluye foto
+    if num_media > 0:
+        enlace = subir_foto_drive(request.form.get("MediaUrl0"), categoria, monto or "0", moneda or "€")
+
+    hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, enlace])
+
+    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷 {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}")
 
     return str(resp)
 
+# ==========================================
+# 🔹 INICIO FLASK
+# ==========================================
 
-# ==================================================
-# 🔹 INICIO SERVIDOR
-# ==================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
