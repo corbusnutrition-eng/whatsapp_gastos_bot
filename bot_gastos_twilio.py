@@ -64,16 +64,27 @@ sheet_byron = archivo.worksheet(TAB_BYRON)
 
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
+
     patrones = [
         (re.compile(r'(?:€)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
         (re.compile(r'(?:\$)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
         (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*€'), "€"),
         (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*\$'), "$"),
     ]
+
+    # 1️⃣ Intentar detectar con símbolo € o $
     for rex, moneda in patrones:
         m = rex.search(t)
         if m:
             return m.group(1).replace(",", "."), moneda
+
+    # 2️⃣ Si no tiene símbolo → detectar número aislado y devolver €
+    m = re.search(r'\b([0-9]+(?:[.,][0-9]{1,2})?)\b', t)
+
+    if m:
+        numero = m.group(1).replace(",", ".")
+        return numero, "€"  # ✔ por defecto €
+
     return None, None
 
 def clasificar_categoria(texto):
