@@ -164,7 +164,7 @@ def webhook():
 
     hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, link])
 
-    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}\n📎 {link or 'Sin imagen'}")
+    r.body(f"✅ Gasto registrado\n📅 {fecha}\n🏷️ {categoria}\n💬 {descripcion}\n💰 {monto}{moneda}")
     return str(resp)
 
 # ==========================================
