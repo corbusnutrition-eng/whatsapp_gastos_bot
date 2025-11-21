@@ -6,7 +6,7 @@ import gspread
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.cloud import vision
+from google.cloud import vision_v1 as vision
 import os
 import requests
 
@@ -90,7 +90,13 @@ sheet_arriendos = archivo_arriendos.sheet1   # primera hoja
 # OCR CLIENT  👉 USANDO LAS MISMAS CREDENCIALES
 # ==========================================
 
-vision_client = vision.ImageAnnotatorClient(credentials=credentials)
+from google.api_core.client_options import ClientOptions
+
+client_options = ClientOptions(api_endpoint="https://vision.googleapis.com")
+vision_client = vision.ImageAnnotatorClient(
+    credentials=credentials,
+    client_options=client_options
+)
 
 # ==========================================
 # 🔹 SUBIR FOTO A DRIVE
