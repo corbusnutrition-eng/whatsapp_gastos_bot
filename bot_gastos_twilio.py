@@ -25,15 +25,14 @@ ADMINS = [
 
 NUMEROS_BYRON = ["+351961545289", "+351961545268"]
 
-# Número autorizado para enviar comprobantes
-NUMERO_ARRIENDOS = "+593960153241"
+# Números autorizados para enviar comprobantes de arriendos
+NUMEROS_ARRIENDOS = ["+593960153241", "+593990516017"]
 
 # Memoria temporal del modo admin
-# { "+59399...": "P" }
 modo_admin = {}
 
 # ==========================================
-# HOJA DE GASTOS NORMAL
+# HOJAS DE GASTOS
 # ==========================================
 
 TAB_PERSONAL = "PERSONAL"
@@ -45,8 +44,8 @@ ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
 # HOJA NUEVA: ARRIENDOS
 # ==========================================
 
-ARCHIVO_ARRIENDOS = "INGRESOS_ARRIENDOS"   # Nombre exacto del archivo
-TABLA_ARRIENDOS = "Hoja 1"                 # Primera hoja
+ARCHIVO_ARRIENDOS = "INGRESOS_ARRIENDOS"
+TABLA_ARRIENDOS = "Hoja 1"
 
 # ==========================================
 # 🔹 GOOGLE CREDENTIALS
@@ -66,13 +65,16 @@ credentials_dict = {
     "client_id": os.getenv("GOOGLE_CLIENT_ID"),
     "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
     "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
-    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL"),
-    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_CERT_URL"),
+    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
 }
 
-credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
+credentials = service_account.Credentials.from_service_account_info(
+    credentials_dict, scopes=scope
+)
+
 client = gspread.authorize(credentials)
-drive_service = build('drive', 'v3', credentials=credentials)
+drive_service = build("drive", "v3", credentials=credentials)
 
 # Sheets gastos
 archivo = client.open(ARCHIVO_GS)
@@ -109,21 +111,19 @@ def subir_foto_drive(url):
         media = MediaFileUpload(fname, mimetype="image/jpeg")
 
         file = drive_service.files().create(
-            body=meta,
-            media_body=media,
-            fields="id"
+            body=meta, media_body=media, fields="id"
         ).execute()
 
         drive_service.permissions().create(
             fileId=file["id"],
-            body={"role": "reader", "type": "anyone"}
+            body={"role": "reader", "type": "anyone"},
         ).execute()
 
         link = f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
-
         return fname, link
 
-    except:
+    except Exception as e:
+        print("ERROR SUBIENDO A DRIVE:", e)
         return None, None
 
 
@@ -162,6 +162,7 @@ def extraer_monto_y_moneda(texto):
         if m:
             return m.group(1).replace(",", "."), moneda
 
+    # Detecta número suelto
     m = re.search(r'\b([0-9]+(?:[.,][0-9]{1,2})?)\b', t)
     if m:
         return m.group(1).replace(",", "."), "USD"
@@ -192,7 +193,7 @@ def webhook():
         destino = {
             "P": "PERSONAL",
             "S": "ALEX",
-            "A": "ARRIENDOS"
+            "A": "ARRIENDOS",
         }[msg.upper()]
 
         r.body(f"✔ Modo cambiado a: *{destino}*")
@@ -202,7 +203,7 @@ def webhook():
     # 🔥 MODO ARRIENDOS
     # ==========================================
 
-    if modo_admin.get(ADMIN_PRINCIPAL) == "A" and sender in [ADMIN_PRINCIPAL, NUMERO_ARRIENDOS]:
+    if modo_admin.get(ADMIN_PRINCIPAL) == "A" and sender in NUMEROS_ARRIENDOS:
 
         if num_media == 0:
             r.body("❗ Envía la *foto del comprobante* para registrar el ingreso.")
@@ -217,13 +218,9 @@ def webhook():
 
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        sheet_arriendos.append_row([
-            fecha,
-            sender,
-            documento,
-            monto,
-            drive_link
-        ])
+        sheet_arriendos.append_row(
+            [fecha, sender, documento, monto, drive_link]
+        )
 
         r.body(
             f"🏠 *Ingreso registrado correctamente*\n\n"
@@ -236,7 +233,7 @@ def webhook():
         return str(resp)
 
     # ==========================================
-    # 🔥 LÓGICA NORMAL (Gastos)
+    # 🔥 GASTOS NORMALES
     # ==========================================
 
     if sender in NUMEROS_BYRON:
@@ -252,7 +249,7 @@ def webhook():
 
     hoja.append_row([fecha, sender, "Gasto", msg, monto, moneda, ""])
 
-    r.body(f"✅ Gasto registrado correctamente")
+    r.body("✅ Gasto registrado correctamente")
 
     return str(resp)
 
