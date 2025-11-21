@@ -6,7 +6,8 @@ import gspread
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.cloud import vision_v1 as vision
+from google.cloud import vision
+from google.api_core.client_options import ClientOptions
 import os
 import requests
 
@@ -25,14 +26,14 @@ ADMINS = [
 
 NUMEROS_BYRON = ["+351961545289", "+351961545268"]
 
-# Números autorizados para enviar comprobantes de ARRIENDOS
+# Número autorizado para comprobantes de ARRIENDOS
 NUMERO_ARRIENDOS = "+593960153241"
 
-# Memoria temporal del modo admin  { "+59399...": "P" / "S" / "A" }
+# modos por número
 modo_admin = {}
 
 # ==========================================
-# HOJA DE GASTOS NORMAL
+# HOJAS DE GOOGLE SHEETS
 # ==========================================
 
 TAB_PERSONAL = "PERSONAL"
@@ -40,14 +41,10 @@ TAB_ALEX = "ALEX"
 TAB_BYRON = "BYRON"
 ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
 
-# ==========================================
-# HOJA NUEVA: ARRIENDOS
-# ==========================================
-
-ARCHIVO_ARRIENDOS = "INGRESOS_ARRIENDOS"   # Nombre exacto del archivo
+ARCHIVO_ARRIENDOS = "INGRESOS_ARRIENDOS"
 
 # ==========================================
-# 🔹 GOOGLE CREDENTIALS
+# GOOGLE CREDENTIALS
 # ==========================================
 
 scope = [
@@ -64,8 +61,8 @@ credentials_dict = {
     "client_id": os.getenv("GOOGLE_CLIENT_ID"),
     "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
     "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
-    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL"),
-    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_CERT_URL"),
+    "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
 }
 
 credentials = service_account.Credentials.from_service_account_info(
@@ -84,22 +81,20 @@ sheet_byron = archivo.worksheet(TAB_BYRON)
 
 # Sheets arriendos
 archivo_arriendos = client.open(ARCHIVO_ARRIENDOS)
-sheet_arriendos = archivo_arriendos.sheet1   # primera hoja
+sheet_arriendos = archivo_arriendos.sheet1
 
 # ==========================================
-# OCR CLIENT  👉 USANDO LAS MISMAS CREDENCIALES
+# OCR CLIENT
 # ==========================================
 
-from google.api_core.client_options import ClientOptions
-
-client_options = ClientOptions(api_endpoint="https://vision.googleapis.com")
+client_options = ClientOptions(api_endpoint="https://vision.googleapis.com/")
 vision_client = vision.ImageAnnotatorClient(
     credentials=credentials,
     client_options=client_options
 )
 
 # ==========================================
-# 🔹 SUBIR FOTO A DRIVE
+# FUNCIONES
 # ==========================================
 
 def subir_foto_drive(url):
@@ -129,16 +124,12 @@ def subir_foto_drive(url):
         ).execute()
 
         link = f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
-
         return fname, link
 
     except Exception as e:
         print("Error subiendo a Drive:", e)
         return None, None
 
-# ==========================================
-# 🔹 OCR
-# ==========================================
 
 def leer_texto_ocr(local_path):
     if not local_path:
@@ -159,12 +150,10 @@ def leer_texto_ocr(local_path):
 
     return response.text_annotations[0].description
 
-# ==========================================
-# Extraer monto
-# ==========================================
 
 def extraer_monto_y_moneda(texto):
     t = texto.lower()
+
     patrones = [
         (re.compile(r'(?:\$)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
         (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*\$'), "$"),
@@ -183,8 +172,9 @@ def extraer_monto_y_moneda(texto):
 
     return None, None
 
+
 # ==========================================
-# 🔥 WEBHOOK
+# WEBHOOK
 # ==========================================
 
 @app.route("/webhook", methods=["POST"])
@@ -196,9 +186,7 @@ def webhook():
     resp = MessagingResponse()
     r = resp.message()
 
-    # ------------------------------------------
-    # ADMIN cambia modo: P, S, A
-    # ------------------------------------------
+    # Cambiar modo
     if sender == ADMIN_PRINCIPAL and msg.upper() in ["P", "S", "A"]:
         modo_admin[ADMIN_PRINCIPAL] = msg.upper()
 
@@ -211,9 +199,7 @@ def webhook():
         r.body(f"✔ Modo cambiado a: *{destino}*")
         return str(resp)
 
-    # ------------------------------------------
-    # MODO ARRIENDOS (ADMIN o NUMERO_ARRIENDOS)
-    # ------------------------------------------
+    # MODO ARRIENDOS
     if modo_admin.get(ADMIN_PRINCIPAL) == "A" and sender in [ADMIN_PRINCIPAL, NUMERO_ARRIENDOS]:
         if num_media == 0:
             r.body("❗ Envía la *foto del comprobante* para registrar el ingreso.")
@@ -246,9 +232,7 @@ def webhook():
         )
         return str(resp)
 
-    # ------------------------------------------
-    # LÓGICA NORMAL (GASTOS)
-    # ------------------------------------------
+    # GASTOS NORMALES
     if sender in NUMEROS_BYRON:
         hoja = sheet_byron
     elif sender in ADMINS:
@@ -261,9 +245,9 @@ def webhook():
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     hoja.append_row([fecha, sender, "Gasto", msg, monto, moneda, ""])
-
     r.body("✅ Gasto registrado correctamente")
     return str(resp)
+
 
 # ==========================================
 # RUN
