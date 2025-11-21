@@ -16,34 +16,45 @@ app = Flask(__name__)
 # ⚙️ CONFIGURACIÓN DE NÚMEROS
 # ==========================================
 
-ADMINS = ["+593990516017", "+351927903369"]
+ADMIN_PRINCIPAL = "+593990516017"
+
+ADMINS = [
+    "+593990516017",
+    "+351927903369"
+]
+
 NUMEROS_BYRON = ["+351961545289", "+351961545268"]
 
-NUMERO_ARRIENDOS = "+593960153241"   # SOLO ESTE PUEDE ENVIAR COMPROBANTES
-ADMIN_ARRIENDOS = "+593990516017"    # SOLO ESTE ACTIVA EL MODO A
+# Número autorizado para enviar comprobantes
+NUMERO_ARRIENDOS = "+593960153241"
 
 # Memoria temporal del modo admin
-#  P = Personal, S = Sociedad(Alex), A = Arriendos
-modo_admin = {}          # { "+59399...": "P" }
-modo_arriendos_activo = False  # flag global
+# { "+59399...": "P" }
+modo_admin = {}
 
-# Pestañas dentro del archivo de GASTOS
+# ==========================================
+# HOJA DE GASTOS NORMAL
+# ==========================================
+
 TAB_PERSONAL = "PERSONAL"
 TAB_ALEX = "ALEX"
 TAB_BYRON = "BYRON"
-ARCHIVO_GS_GASTOS = "GASTOS_AUTOMÁTICOS"
-
-# ID del archivo de INGRESOS (de tu URL)
-ID_INGRESOS = "1EiIZfeqTGGqh_Xufh2befFj3ftExu-3_tKxCtzDsORU"
+ARCHIVO_GS = "GASTOS_AUTOMÁTICOS"
 
 # ==========================================
-# 🔹 GOOGLE SHEETS + DRIVE + VISION
+# HOJA NUEVA: ARRIENDOS
+# ==========================================
+
+ARCHIVO_ARRIENDOS = "INGRESOS_ARRIENDOS"   # Nombre exacto del archivo
+TABLA_ARRIENDOS = "Hoja 1"                 # Primera hoja
+
+# ==========================================
+# 🔹 GOOGLE CREDENTIALS
 # ==========================================
 
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/drive"
 ]
 
 credentials_dict = {
@@ -59,74 +70,24 @@ credentials_dict = {
     "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_CERT_URL"),
 }
 
-credentials = service_account.Credentials.from_service_account_info(
-    credentials_dict, scopes=scope
-)
-
+credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scope)
 client = gspread.authorize(credentials)
-drive_service = build("drive", "v3", credentials=credentials)
+drive_service = build('drive', 'v3', credentials=credentials)
 
-# Cliente de Google Vision **USANDO LAS MISMAS CREDENCIALES**
-vision_client = vision.ImageAnnotatorClient(credentials=credentials)
+# Sheets gastos
+archivo = client.open(ARCHIVO_GS)
+sheet_personal = archivo.worksheet(TAB_PERSONAL)
+sheet_alex = archivo.worksheet(TAB_ALEX)
+sheet_byron = archivo.worksheet(TAB_BYRON)
 
-# Libros de Google Sheets
-archivo_gastos = client.open(ARCHIVO_GS_GASTOS)
-sheet_personal = archivo_gastos.worksheet(TAB_PERSONAL)
-sheet_alex = archivo_gastos.worksheet(TAB_ALEX)
-sheet_byron = archivo_gastos.worksheet(TAB_BYRON)
-
-archivo_ingresos = client.open_by_key(ID_INGRESOS)
-sheet_ingresos = archivo_ingresos.sheet1  # Hoja 1
-
-# Carpeta en Drive para imágenes (puedes cambiarla)
-FOLDER_DRIVE_COMPROBANTES = os.getenv(
-    "FOLDER_DRIVE_COMPROBANTES",
-    "1eLSP5656bzNMml3W7hE8uHi97kBX3Pse"  # la que ya tienes
-)
+# Sheets arriendos
+archivo_arriendos = client.open(ARCHIVO_ARRIENDOS)
+sheet_arriendos = archivo_arriendos.sheet1
 
 # ==========================================
-# 🔹 FUNCIONES GASTOS
+# OCR CLIENT
 # ==========================================
-
-def extraer_monto_y_moneda(texto):
-    t = texto.lower()
-
-    patrones = [
-        (re.compile(r'(?:€)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
-        (re.compile(r'(?:\$)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*€'), "€"),
-        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*\$'), "$"),
-    ]
-
-    # 1️⃣ Intentar detectar con símbolo € o $
-    for rex, moneda in patrones:
-        m = rex.search(t)
-        if m:
-            return m.group(1).replace(",", "."), moneda
-
-    # 2️⃣ Si no tiene símbolo → detectar número aislado y devolver €
-    m = re.search(r"\b([0-9]+(?:[.,][0-9]{1,2})?)\b", t)
-    if m:
-        numero = m.group(1).replace(",", ".")
-        return numero, "€"  # por defecto €
-
-    return None, None
-
-
-def clasificar_categoria(texto):
-    texto = texto.lower()
-    if "super" in texto:
-        return "Supermercado"
-    if "gasolina" in texto or "combustible" in texto:
-        return "Combustible"
-    if "rest" in texto or "comida" in texto or "almuerzo" in texto:
-        return "Alimentación"
-    return "Gastos varios"
-
-
-def limpiar_descripcion(texto):
-    return texto.strip().capitalize()
-
+vision_client = vision.ImageAnnotatorClient()
 
 # ==========================================
 # 🔹 SUBIR FOTO A DRIVE
@@ -136,181 +97,168 @@ def subir_foto_drive(url):
     try:
         r = requests.get(url)
         if r.status_code != 200:
-            return None
+            return None, None
 
         os.makedirs("temp", exist_ok=True)
+
         fname = f"temp/{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
         with open(fname, "wb") as f:
             f.write(r.content)
 
-        file_metadata = {
-            "name": os.path.basename(fname),
-            "parents": [FOLDER_DRIVE_COMPROBANTES],
-        }
+        meta = {"name": os.path.basename(fname)}
         media = MediaFileUpload(fname, mimetype="image/jpeg")
-        file = (
-            drive_service.files()
-            .create(body=file_metadata, media_body=media, fields="id")
-            .execute()
-        )
 
-        # Hacer público
+        file = drive_service.files().create(
+            body=meta,
+            media_body=media,
+            fields="id"
+        ).execute()
+
         drive_service.permissions().create(
-            fileId=file["id"], body={"role": "reader", "type": "anyone"}
+            fileId=file["id"],
+            body={"role": "reader", "type": "anyone"}
         ).execute()
 
         link = f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
-        os.remove(fname)
-        return link
-    except Exception as e:
-        print("Error al subir a Drive:", e)
-        return None
+
+        return fname, link
+
+    except:
+        return None, None
 
 
 # ==========================================
-# 🔹 OCR CON GOOGLE VISION
+# 🔹 OCR
 # ==========================================
 
-def leer_texto_ocr(url_imagen):
-    """Descarga la imagen desde WhatsApp y obtiene el texto con Google Vision."""
-    try:
-        resp = requests.get(url_imagen)
-        if resp.status_code != 200:
-            return ""
+def leer_texto_ocr(local_path):
+    with open(local_path, "rb") as img_file:
+        content = img_file.read()
 
-        image = vision.Image(content=resp.content)
-        result = vision_client.text_detection(image=image)
-        if result.error.message:
-            print("Error OCR:", result.error.message)
-            return ""
+    image = vision.Image(content=content)
+    response = vision_client.text_detection(image=image)
 
-        if not result.text_annotations:
-            return ""
-
-        return result.text_annotations[0].description  # texto completo
-    except Exception as e:
-        print("Error en leer_texto_ocr:", e)
+    if not response.text_annotations:
         return ""
 
-
-def extraer_monto_desde_texto(texto):
-    monto, _ = extraer_monto_y_moneda(texto)
-    return monto or ""
-
-
-def extraer_numero_comprobante(texto):
-    # Busca un número largo (6+ dígitos)
-    m = re.search(r"\b(\d{6,})\b", texto.replace(" ", ""))
-    return m.group(1) if m else ""
+    return response.text_annotations[0].description
 
 
 # ==========================================
-# 🔹 WEBHOOK PRINCIPAL
+# Extraer monto
+# ==========================================
+
+def extraer_monto_y_moneda(texto):
+    t = texto.lower()
+    patrones = [
+        (re.compile(r'(?:\$)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "$"),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*\$'), "$"),
+        (re.compile(r'(?:€)\s*([0-9]+(?:[.,][0-9]{1,2})?)'), "€"),
+        (re.compile(r'([0-9]+(?:[.,][0-9]{1,2})?)\s*€'), "€"),
+    ]
+
+    for rex, moneda in patrones:
+        m = rex.search(t)
+        if m:
+            return m.group(1).replace(",", "."), moneda
+
+    m = re.search(r'\b([0-9]+(?:[.,][0-9]{1,2})?)\b', t)
+    if m:
+        return m.group(1).replace(",", "."), "USD"
+
+    return None, None
+
+
+# ==========================================
+# 🔥 WEBHOOK
 # ==========================================
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    global modo_arriendos_activo
 
     msg = request.form.get("Body", "").strip()
     sender = request.form.get("From", "").replace("whatsapp:", "")
     num_media = int(request.form.get("NumMedia", 0))
-    media_url = request.form.get("MediaUrl0")
+
     resp = MessagingResponse()
     r = resp.message()
 
-    # ------------------------------------------
-    # 1️⃣ ADMIN CAMBIA MODO (P / S / A)
-    # ------------------------------------------
-    if sender in ADMINS and msg.upper() in ["P", "S", "A"]:
-        letra = msg.upper()
+    # ==========================================
+    # 🔥 ADMIN Cambia Modo: P, S, A
+    # ==========================================
+    if sender == ADMIN_PRINCIPAL and msg.upper() in ["P", "S", "A"]:
+        modo_admin[ADMIN_PRINCIPAL] = msg.upper()
 
-        if sender == ADMIN_ARRIENDOS and letra == "A":
-            modo_arriendos_activo = True
-            modo_admin[sender] = "A"
-            r.body(
-                "✔ Modo *ARRIENDOS* activado.\n"
-                "Solo el número +593960153241 puede enviar comprobantes.\n"
-                "Envía *P* (Personal) o *S* (Sociedad/Alex) para volver al modo gastos."
-            )
+        destino = {
+            "P": "PERSONAL",
+            "S": "ALEX",
+            "A": "ARRIENDOS"
+        }[msg.upper()]
+
+        r.body(f"✔ Modo cambiado a: *{destino}*")
+        return str(resp)
+
+    # ==========================================
+    # 🔥 MODO ARRIENDOS
+    # ==========================================
+
+    if modo_admin.get(ADMIN_PRINCIPAL) == "A" and sender in [ADMIN_PRINCIPAL, NUMERO_ARRIENDOS]:
+
+        if num_media == 0:
+            r.body("❗ Envía la *foto del comprobante* para registrar el ingreso.")
             return str(resp)
 
-        # Si envía P o S se apaga modo arriendos
-        if letra in ["P", "S"]:
-            modo_arriendos_activo = False
-            modo_admin[sender] = letra
-            destino = "PERSONAL" if letra == "P" else "ALEX"
-            r.body(f"✔ Modo cambiado a: *{destino}* (gastos)")
-            return str(resp)
+        local_path, drive_link = subir_foto_drive(request.form.get("MediaUrl0"))
+        texto = leer_texto_ocr(local_path)
 
-    # ------------------------------------------
-    # 2️⃣ MODO ARRIENDOS (solo si está activo + número autorizado)
-    # ------------------------------------------
-    if modo_arriendos_activo and sender == NUMERO_ARRIENDOS and num_media > 0:
+        monto, moneda = extraer_monto_y_moneda(texto)
+        doc = re.search(r'\b\d{6,}\b', texto)
+        documento = doc.group(0) if doc else "NO_DETECTADO"
+
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        nombre = msg or ""  # aquí puedes escribir "Juan depto 3" cuando envías la foto
 
-        # Subir imagen a Drive
-        link_imagen = subir_foto_drive(media_url)
-
-        # Leer texto con OCR
-        texto_ocr = leer_texto_ocr(media_url)
-        monto = extraer_monto_desde_texto(texto_ocr)
-        num_comprobante = extraer_numero_comprobante(texto_ocr)
-
-        # Registrar en hoja de INGRESOS_ARRIENDOS
-        # Columnas: FECHA | NOMBRE | NUMERO DE COMPROBANTE O DOCUMENTO | MONTO O VALOR | LINK_IMAGEN
-        sheet_ingresos.append_row(
-            [fecha, nombre, num_comprobante, monto, link_imagen]
-        )
+        sheet_arriendos.append_row([
+            fecha,
+            sender,
+            documento,
+            monto,
+            drive_link
+        ])
 
         r.body(
-            "✅ *Ingreso de arriendo registrado*\n"
+            f"🏠 *Ingreso registrado correctamente*\n\n"
             f"📅 Fecha: {fecha}\n"
-            f"👤 Nombre: {nombre}\n"
-            f"📄 Comprobante: {num_comprobante}\n"
+            f"👤 Número: {sender}\n"
+            f"🧾 Documento: {documento}\n"
             f"💰 Monto: {monto}\n"
-            f"🔗 Imagen: {link_imagen}"
+            f"📎 Comprobante: {drive_link}"
         )
         return str(resp)
 
-    # ------------------------------------------
-    # 3️⃣ LÓGICA NORMAL DE GASTOS (como antes)
-    # ------------------------------------------
+    # ==========================================
+    # 🔥 LÓGICA NORMAL (Gastos)
+    # ==========================================
 
-    # Determinar hoja destino de GASTOS
     if sender in NUMEROS_BYRON:
         hoja = sheet_byron
     elif sender in ADMINS:
         modo = modo_admin.get(sender, "P")
         hoja = sheet_personal if modo == "P" else sheet_alex
     else:
-        hoja = sheet_byron  # por seguridad
+        hoja = sheet_byron
 
-    # Extraer datos de gasto
     monto, moneda = extraer_monto_y_moneda(msg)
-    categoria = clasificar_categoria(msg)
-    descripcion = limpiar_descripcion(msg)
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    link = ""
 
-    if num_media > 0 and media_url:
-        link = subir_foto_drive(media_url)
+    hoja.append_row([fecha, sender, "Gasto", msg, monto, moneda, ""])
 
-    hoja.append_row([fecha, sender, categoria, descripcion, monto, moneda, link])
+    r.body(f"✅ Gasto registrado correctamente")
 
-    r.body(
-        "✅ Gasto registrado\n"
-        f"📅 {fecha}\n"
-        f"🏷️ {categoria}\n"
-        f"💬 {descripcion}\n"
-        f"💰 {monto}{moneda}"
-    )
     return str(resp)
 
 
 # ==========================================
-# 🔹 INICIO LOCAL
+# RUN
 # ==========================================
 
 if __name__ == "__main__":
