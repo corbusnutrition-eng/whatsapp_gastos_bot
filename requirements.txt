@@ -8,12 +8,13 @@ google-auth==2.23.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
 
-google-api-python-client==2.97.0
-google-cloud-vision==3.4.4
-google-cloud-core==2.3.3
-google-cloud-storage==2.10.0
-googleapis-common-protos==1.60.0
-protobuf==4.24.4
+google-api-python-client==2.103.0
+google-cloud-vision==3.3.0
+google-cloud-core==2.3.2
+google-cloud-storage==2.9.0
+
+protobuf==4.23.3
+googleapis-common-protos==1.59.1
 
 python-dotenv==1.0.0
 Pillow==10.0.0
